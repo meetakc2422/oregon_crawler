@@ -1,56 +1,33 @@
 import scrapy
-import selenium
-from selenium import webdriver
-import csv
-from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver.chrome.options import Options
-chrome_options = Options()
-chrome_options.add_argument("--headless")
+from scrapy.http import Request
 
-path = R"E:\Desktop\oregon_bills\chromedriver.exe"
-driver = webdriver.Chrome(path,options=chrome_options)
-a_list = []
-b_list = []
-c_list = []
-pdf_list = []
-url = "https://gov.oregonlive.com/bill/intro/2021/"
-def crawl():
-        for ur in range(23,26):
-            new_url = url + "page-"+str(ur) + "/"
-            driver.get(new_url)
+class Oregon(scrapy.Spider):
+    name = 'or'
+    # allowed_domains = ['gov.oregonlive.com/bill/']
+    start_urls = ['https://gov.oregonlive.com/bill/intro/2021/page-1/']
+    def parse(self, response):
+        try:
+            bills = response.xpath('//div[@class="indvote"]/a/text()').extract()
+            billsUrl = response.xpath('//div[@class="indvote"]/a/@href').extract()
+            for i,j in zip(billsUrl,range(len(bills))):
+                abs_url = "https://gov.oregonlive.com" + i
+                yield Request(url=abs_url,callback=self.parse_more,meta={
+                    'Bills':bills[j]
+                    })
+        except Exception as e:
+            return e
+        ## next page
+        try:
+            next_page = response.xpath('//div[@id="nextpage"]/a[last()]/@href').extract_first()
+            abs_next_page = "https://gov.oregonlive.com" + next_page
+            yield Request(url=abs_next_page)
+        except Exception as e:
+            return e
 
-            a = driver.find_elements_by_xpath('//div[@class="indvote"]/a')
-            for new in  a:
-                a_list.append(new.text)
-            l = driver.find_elements_by_xpath("//div[@class='indvote']/a")
-            for item in l:
-                b_list.append(item.get_attribute('href'))
-        for c in b_list:
-            try:
-                driver.get(c)
-
-                pdf = driver.find_element_by_xpath("//div[@class='billtext']/ul/li/a").get_attribute('href')
-                pdf_list.append(pdf)
-                status = driver.find_element_by_xpath("//div[@class='activity']//li[last()]").text
-                c_list.append(status)
-            except NoSuchElementException:
-                c_list.append("No Activity yet")
-                continue
-
-
-        with open(R"E:\Desktop\oregon_bills\out_7.csv",'w', newline="", encoding='utf8') as my_file:
-                csv_writer = csv.writer(my_file,delimiter=",")
-                csv_writer.writerow(["bill_no.","Doc URL","Status"])
-                for m,n,o in zip(a_list,pdf_list,c_list):
-                # for m in pdf_list:
-                    csv_writer.writerow([m,n,o])
-                my_file.close()
-        driver.quit()
-
-
-
-
-crawl()
-
-
-
+    def parse_more(self,response):
+        doc_url = response.xpath('//div[@class="billtext"]/ul/li[2]/a/@href').extract_first()
+        if 'Doc_Url' not in response.meta:
+            response.meta['Doc_Url'] =doc_url
+        else:
+            response.meta['Doc_Url'].append(doc_url)
+        yield response.meta
